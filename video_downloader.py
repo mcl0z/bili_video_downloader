@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+Bilibili 视频下载工具
+独立程序，可以从B站下载视频并合并音视频流为MP4格式
+"""
 
 import asyncio
 import json
@@ -7,6 +12,9 @@ import httpx
 from pathlib import Path
 from typing import Dict, Any, Optional
 import subprocess
+import base64
+from PIL import Image, ImageTk
+import io
 
 # 添加项目路径到Python路径
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -27,15 +35,15 @@ class VideoDownloader:
         """加载用户cookies"""
         try:
             if not self.cookie_file.exists():
-                print(f"找不到cookie文件 {self.cookie_file}，将启动扫码登录")
-                return self.qr_login()
+                print(f"找不到cookie文件 {self.cookie_file}")
+                return False
                 
             cookie_manager.load_cookies()
             users = cookie_manager.get_all_users()
             
             if not users:
-                print("没有找到已保存的用户，将启动扫码登录")
-                return self.qr_login()
+                print("没有找到已保存的用户")
+                return False
             
             # 使用最近保存的用户
             latest_user = max(users.items(), key=lambda x: x[1]['saved_time'])
@@ -43,8 +51,8 @@ class VideoDownloader:
             
             self.cookies = cookie_manager.get_cookies(user_id)
             if not self.cookies:
-                print("无法获取用户cookies，将启动扫码登录")
-                return self.qr_login()
+                print("无法获取用户cookies")
+                return False
                 
             print(f"已加载用户: {user_data['user_info'].get('uname', user_id)}")
             return True
@@ -55,32 +63,12 @@ class VideoDownloader:
     def qr_login(self) -> bool:
         """扫码登录"""
         try:
-            # 在已有的事件循环中执行或创建新的事件循环
-            try:
-                # 尝试获取当前事件循环
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                # 如果没有正在运行的事件循环，则创建新的
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                result = loop.run_until_complete(self._qr_login_async())
-                loop.close()
-                return result
-            else:
-                # 在已有的事件循环中执行
-                # 使用 asyncio.create_task 或直接 await
-                task = loop.create_task(self._qr_login_async())
-                # 在 Jupyter 或其他已有事件循环环境中运行
-                # 需要特殊处理
-                try:
-                    import nest_asyncio
-                    nest_asyncio.apply()
-                    result = loop.run_until_complete(task)
-                    return result
-                except:
-                    # 如果 nest_asyncio 不可用或失败，尝试不同的方法
-                    result = asyncio.run(self._qr_login_async())
-                    return result
+            # 创建新的事件循环
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            result = loop.run_until_complete(self._qr_login_async())
+            loop.close()
+            return result
         except Exception as e:
             print(f"扫码登录失败: {e}")
             import traceback
@@ -104,10 +92,6 @@ class VideoDownloader:
                 qrcode_key = qr_data['qrcode_key']
                 
                 # 将base64数据写入临时文件以供显示
-                import base64
-                from PIL import Image
-                import io
-                
                 try:
                     # 解码base64数据
                     header, encoded = qr_image_data.split(",", 1)
@@ -358,6 +342,36 @@ class VideoDownloader:
             print(f"\n下载 {filename} 失败: {e}")
             return False
     
+    async def download_stream_with_progress(self, url: str, filename: str, progress_callback=None) -> bool:
+        """下载视频/音频流（支持进度更新）"""
+        try:
+            async with httpx.AsyncClient() as client:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'Referer': 'https://www.bilibili.com/'
+                }
+                
+                async with client.stream('GET', url, headers=headers) as response:
+                    response.raise_for_status()
+                    total_size = int(response.headers.get('content-length', 0))
+                    
+                    downloaded = 0
+                    with open(filename, 'wb') as f:
+                        async for chunk in response.aiter_bytes(chunk_size=8192):
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            
+                            # 更新进度
+                            if total_size > 0 and progress_callback:
+                                progress = downloaded / total_size
+                                progress_callback(progress, downloaded, total_size)
+                                
+            print(f"已下载: {filename}")
+            return True
+        except Exception as e:
+            print(f"\n下载 {filename} 失败: {e}")
+            return False
+    
     def merge_video_audio(self, video_file: str, audio_file: str, output_file: str) -> bool:
         """合并视频和音频文件"""
         try:
@@ -395,8 +409,8 @@ class VideoDownloader:
             except Exception as e:
                 print(f"清理临时文件失败: {e}")
     
-    async def download_video(self, bvid: str, quality: int = 32, output_dir: str = "./downloads") -> bool:
-        """下载Bilibili视频"""
+    async def download_video(self, bvid: str, quality: int = 32, output_dir: str = "./downloads", progress_callback=None) -> bool:
+        """下载Bilibili视频（支持进度回调）"""
         print(f"开始下载视频: {bvid}")
         
         # 创建输出目录
@@ -481,19 +495,38 @@ class VideoDownloader:
             
             # 下载视频流
             print("正在下载视频流...")
-            if not await self.download_stream(video_stream['baseUrl'], video_file):
+            if progress_callback:
+                progress_callback("视频下载中...", 0)
+                
+            def video_progress(progress, downloaded, total):
+                if progress_callback:
+                    progress_callback("视频下载中...", progress)
+                    
+            if not await self.download_stream_with_progress(video_stream['baseUrl'], video_file, video_progress):
                 return False
                 
             # 下载音频流
             print("正在下载音频流...")
-            if not await self.download_stream(audio_stream['baseUrl'], audio_file):
+            if progress_callback:
+                progress_callback("音频下载中...", 0)
+                
+            def audio_progress(progress, downloaded, total):
+                if progress_callback:
+                    progress_callback("音频下载中...", progress)
+                    
+            if not await self.download_stream_with_progress(audio_stream['baseUrl'], audio_file, audio_progress):
                 return False
                 
             # 合并音视频
+            if progress_callback:
+                progress_callback("合并中...", 0)
+                
             if not self.merge_video_audio(video_file, audio_file, output_file):
                 return False
                 
             print(f"视频下载完成: {output_file}")
+            if progress_callback:
+                progress_callback("下载完成", 1.0)
             return True
             
         # 处理非DASH格式视频（传统格式）
@@ -512,10 +545,19 @@ class VideoDownloader:
             # 下载视频（通常已包含音频）
             video_url = durl[0]['url']
             print("正在下载视频...")
-            if not await self.download_stream(video_url, output_file):
+            if progress_callback:
+                progress_callback("下载中...", 0)
+                
+            def video_progress(progress, downloaded, total):
+                if progress_callback:
+                    progress_callback("下载中...", progress)
+                    
+            if not await self.download_stream_with_progress(video_url, output_file, video_progress):
                 return False
                 
             print(f"视频下载完成: {output_file}")
+            if progress_callback:
+                progress_callback("下载完成", 1.0)
             return True
             
         else:
