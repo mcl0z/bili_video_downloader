@@ -11,10 +11,13 @@ from PIL import Image, ImageTk
 import io
 import httpx
 import random
+
 # 设置CTk主题
-ctk.set_appearance_mode("System")  # "Light", "Dark", 或 "System"
-ctk.set_default_color_theme("blue")  # 蓝色主题
-lucky_msg = ['祝你有美好的一天','欢迎使用👋','你好','Hello,World!','Using Video downloader']
+ctk.set_appearance_mode("System")
+ctk.set_default_color_theme("blue")
+
+# 欢迎消息
+lucky_msg = ['祝你有美好的一天', '欢迎使用👋', '你好', 'Hello,World!', 'Using Video downloader']
 
 class VideoItem:
     """视频项目类，用于存储视频信息"""
@@ -22,20 +25,23 @@ class VideoItem:
         self.bvid = bvid
         self.title = title
         self.cover_url = cover_url
-        self.cover_image = cover_image  # PIL图像对象
-        self.cover_photo = None  # tkinter PhotoImage对象
-        self.progress_bar = None  # 进度条控件
-        self.progress_label = None  # 进度文本标签
-        self.status_label = None  # 状态标签
-        self.list_item_frame = None  # 列表项框架
+        self.cover_image = cover_image
+        self.cover_photo = None
+        self.progress_bar = None
+        self.progress_label = None
+        self.status_label = None
+        self.list_item_frame = None
 
 
 class BilibiliVideoDownloaderGUI:
     def __init__(self):
         self.root = ctk.CTk()
-        self.root.title("BVideo下载")
-        self.root.geometry("900x1000")
-        self.root.minsize(700, 1000)  # 设置最小窗口大小
+        self.root.title("BVideo下载器")
+        self.root.geometry("1100x800")
+        self.root.minsize(900, 600)
+        
+        # 设置应用图标和标题栏样式
+        self.root.wm_attributes("-alpha", 0.98)
         
         # 下载器实例
         self.downloader = VideoDownloader()
@@ -43,16 +49,16 @@ class BilibiliVideoDownloaderGUI:
         # 下载线程
         self.download_thread = None
         
-        # 二维码图片和窗口
+        # 二维码相关
         self.qr_image = None
         self.qr_window = None
         self.qr_label = None
         
         # 下载列表
-        self.video_list = []  # 存储VideoItem对象
+        self.video_list = []
         self.selected_video = None
         
-        # 登录状态标签（先初始化为None）
+        # 登录状态标签
         self.login_status_label = None
         
         # 创建UI
@@ -64,176 +70,363 @@ class BilibiliVideoDownloaderGUI:
     def load_saved_cookies(self):
         """加载已保存的用户cookies"""
         try:
-            # 直接调用下载器的load_cookies方法
             if self.downloader.load_cookies():
-                self.update_login_status("已登录")
-                self.append_status("已加载已保存的用户登录信息\n")
+                self.update_login_status("已登录", True)
+                self.append_status("✅ 已加载已保存的用户登录信息")
             else:
-                self.update_login_status("未登录")
-                self.append_status("未找到已保存的用户信息，请点击扫码登录\n")
+                self.update_login_status("未登录", False)
+                self.append_status("ℹ️ 未找到已保存的用户信息，请点击扫码登录")
         except Exception as e:
-            self.update_login_status("未登录")
-            self.append_status(f"加载已保存的用户信息时出错: {e}\n")
+            self.update_login_status("未登录", False)
+            self.append_status(f"❌ 加载已保存的用户信息时出错: {e}")
             
     def create_widgets(self):
-        # 主框架
-        main_frame = ctk.CTkFrame(self.root)
-        main_frame.pack(padx=20, pady=20, fill="both", expand=True)
+        # 创建主容器，使用网格布局
+        self.root.grid_columnconfigure(0, weight=1)
+        self.root.grid_rowconfigure(0, weight=1)
         
-        # 标题
-        title_label = ctk.CTkLabel(main_frame, text=lucky_msg[random.randint(0,len(lucky_msg)-1)], 
-                                  font=ctk.CTkFont(size=20, weight="bold"))
-        title_label.pack(pady=(10, 20))
+        # 主滚动框架
+        main_scroll = ctk.CTkScrollableFrame(self.root, corner_radius=0)
+        main_scroll.grid(row=0, column=0, sticky="nsew", padx=0, pady=0)
+        main_scroll.grid_columnconfigure(0, weight=1)
         
-        # 视频链接输入框架
-        url_frame = ctk.CTkFrame(main_frame)
-        url_frame.pack(fill="x", padx=20, pady=5)
+        # === 顶部标题区域 ===
+        self.create_header_section(main_scroll)
         
-        url_label = ctk.CTkLabel(url_frame, text="视频链接:")
-        url_label.pack(side="left", padx=(0, 10))
+        # === 输入区域 ===
+        self.create_input_section(main_scroll)
         
-        self.url_entry = ctk.CTkEntry(url_frame)
-        self.url_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
+        # === 设置区域 ===
+        self.create_settings_section(main_scroll)
+        
+        # === 视频列表区域 ===
+        self.create_video_list_section(main_scroll)
+        
+        # === 状态和控制区域 ===
+        self.create_status_section(main_scroll)
+        
+    def create_header_section(self, parent):
+        """创建顶部标题区域"""
+        header_frame = ctk.CTkFrame(parent, height=120, corner_radius=15)
+        header_frame.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 10))
+        header_frame.grid_columnconfigure(1, weight=1)
+        header_frame.grid_propagate(False)
+        
+        # 应用图标/Logo区域
+        icon_frame = ctk.CTkFrame(header_frame, width=80, height=80, corner_radius=40)
+        icon_frame.grid(row=0, column=0, padx=20, pady=20)
+        icon_frame.grid_propagate(False)
+        
+        icon_label = ctk.CTkLabel(icon_frame, text="📺", font=ctk.CTkFont(size=32))
+        icon_label.place(relx=0.5, rely=0.5, anchor="center")
+        
+        # 标题和欢迎信息
+        title_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
+        title_frame.grid(row=0, column=1, sticky="ew", padx=20, pady=20)
+        
+        title_label = ctk.CTkLabel(
+            title_frame, 
+            text="BVideo 下载器", 
+            font=ctk.CTkFont(size=28, weight="bold")
+        )
+        title_label.pack(anchor="w")
+        
+        subtitle_label = ctk.CTkLabel(
+            title_frame,
+            text=lucky_msg[random.randint(0, len(lucky_msg)-1)],
+            font=ctk.CTkFont(size=14),
+            text_color=("gray60", "gray40")
+        )
+        subtitle_label.pack(anchor="w", pady=(5, 0))
+        
+        # 登录状态指示器
+        status_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
+        status_frame.grid(row=0, column=2, padx=20, pady=20)
+        
+        self.login_status_indicator = ctk.CTkFrame(status_frame, width=12, height=12, corner_radius=6)
+        self.login_status_indicator.pack(side="top", pady=(0, 5))
+        self.login_status_indicator.grid_propagate(False)
+        
+        self.login_status_label = ctk.CTkLabel(
+            status_frame, 
+            text="未登录", 
+            font=ctk.CTkFont(size=12)
+        )
+        self.login_status_label.pack()
+        
+        self.login_button = ctk.CTkButton(
+            status_frame,
+            text="🔑 扫码登录",
+            command=self.login,
+            width=100,
+            height=32,
+            corner_radius=16,
+            font=ctk.CTkFont(size=12)
+        )
+        self.login_button.pack(pady=(10, 0))
+        
+    def create_input_section(self, parent):
+        """创建输入区域"""
+        input_frame = ctk.CTkFrame(parent, corner_radius=15)
+        input_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=10)
+        input_frame.grid_columnconfigure(1, weight=1)
+        
+        # 输入标签
+        input_label = ctk.CTkLabel(
+            input_frame, 
+            text="🔗 视频链接:", 
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        input_label.grid(row=0, column=0, padx=20, pady=(20, 10), sticky="w")
+        
+        # 输入框容器
+        entry_container = ctk.CTkFrame(input_frame, fg_color="transparent")
+        entry_container.grid(row=1, column=0, columnspan=2, sticky="ew", padx=20, pady=(0, 20))
+        entry_container.grid_columnconfigure(0, weight=1)
+        
+        # 输入框
+        self.url_entry = ctk.CTkEntry(
+            entry_container,
+            placeholder_text="请输入Bilibili视频链接，例如: https://www.bilibili.com/video/BV1xx411c7mu",
+            height=40,
+            font=ctk.CTkFont(size=14),
+            corner_radius=20
+        )
+        self.url_entry.grid(row=0, column=0, sticky="ew", padx=(0, 15))
         self.url_entry.insert(0, "https://www.bilibili.com/video/BV1xx411c7mu")
         
-        add_button = ctk.CTkButton(url_frame, text="添加到列表", 
-                                  command=self.add_video_to_list, width=100)
-        add_button.pack(side="right")
-        
-        # 下载列表框架
-        list_frame = ctk.CTkFrame(main_frame)
-        list_frame.pack(fill="both", expand=True, padx=20, pady=10)
-        
-        list_label = ctk.CTkLabel(list_frame, text="待下载列表:", 
-                                 font=ctk.CTkFont(size=14, weight="bold"))
-        list_label.pack(anchor="w", padx=10, pady=(10, 5))
-        
-        # 创建Treeview风格的列表
-        list_header_frame = ctk.CTkFrame(list_frame)
-        list_header_frame.pack(fill="x", padx=10, pady=(0, 5))
-        
-        ctk.CTkLabel(list_header_frame, text="封面", width=100).pack(side="left", padx=(0, 10))
-        ctk.CTkLabel(list_header_frame, text="视频标题", width=300).pack(side="left", padx=(0, 10))
-        ctk.CTkLabel(list_header_frame, text="BV号", width=150).pack(side="left", padx=(0, 10))
-        
-        # 创建可滚动的列表区域
-        list_box_frame = ctk.CTkFrame(list_frame)
-        list_box_frame.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        
-        # 创建Canvas和滚动条
-        self.list_canvas = ctk.CTkCanvas(list_box_frame, highlightthickness=0)
-        scrollbar = ctk.CTkScrollbar(list_box_frame, orientation="vertical", command=self.list_canvas.yview)
-        self.list_scrollable_frame = ctk.CTkFrame(self.list_canvas)
-        
-        self.list_scrollable_frame.bind(
-            "<Configure>",
-            lambda e: self.list_canvas.configure(
-                scrollregion=self.list_canvas.bbox("all")
-            )
+        # 添加按钮
+        add_button = ctk.CTkButton(
+            entry_container,
+            text="➕ 添加到列表",
+            command=self.add_video_to_list,
+            width=140,
+            height=40,
+            corner_radius=20,
+            font=ctk.CTkFont(size=14, weight="bold")
         )
+        add_button.grid(row=0, column=1)
         
-        self.list_canvas.create_window((0, 0), window=self.list_scrollable_frame, anchor="nw")
-        self.list_canvas.configure(yscrollcommand=scrollbar.set)
+    def create_settings_section(self, parent):
+        """创建设置区域"""
+        settings_frame = ctk.CTkFrame(parent, corner_radius=15)
+        settings_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=10)
+        settings_frame.grid_columnconfigure((0, 1), weight=1)
         
-        self.list_canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        # 设置标题
+        settings_label = ctk.CTkLabel(
+            settings_frame, 
+            text="⚙️ 下载设置", 
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        settings_label.grid(row=0, column=0, columnspan=2, padx=20, pady=(20, 15), sticky="w")
         
-        # 绑定鼠标滚轮事件
-        self.list_canvas.bind("<MouseWheel>", self._on_mousewheel)
+        # 质量设置
+        quality_container = ctk.CTkFrame(settings_frame, fg_color="transparent")
+        quality_container.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 20))
         
-        # 分隔线
-        separator = ctk.CTkFrame(main_frame, height=2, fg_color=("gray70", "gray30"))
-        separator.pack(fill="x", padx=20, pady=10)
+        quality_label = ctk.CTkLabel(
+            quality_container, 
+            text="🎬 视频质量:", 
+            font=ctk.CTkFont(size=14)
+        )
+        quality_label.pack(anchor="w", pady=(0, 8))
         
-        # 下载设置框架
-        settings_frame = ctk.CTkFrame(main_frame)
-        settings_frame.pack(fill="x", padx=20, pady=10)
-        
-        # 质量选择框架
-        quality_frame = ctk.CTkFrame(settings_frame)
-        quality_frame.pack(side="left", padx=(0, 20))
-        
-        quality_label = ctk.CTkLabel(quality_frame, text="视频质量:")
-        quality_label.pack(side="left", padx=(0, 10))
-        
-        self.quality_var = ctk.StringVar(value="32")
+        self.quality_var = ctk.StringVar(value="80: 1080P")
         quality_options = [
-            "120: 4K超清",
-            "116: 1080P60帧", 
-            "74: 1080P高码率",
-            "80: 1080P",
-            "64: 720P",
-            "32: 480P",
-            "16: 360P"
+            "120: 4K超清", "116: 1080P60帧", "74: 1080P高码率",
+            "80: 1080P", "64: 720P", "32: 480P", "16: 360P"
         ]
-        self.quality_combo = ctk.CTkComboBox(quality_frame, 
-                                            values=quality_options,
-                                            variable=self.quality_var,
-                                            width=200)
-        self.quality_combo.pack(side="left", padx=(0, 10))
+        self.quality_combo = ctk.CTkComboBox(
+            quality_container,
+            values=quality_options,
+            variable=self.quality_var,
+            width=200,
+            height=35,
+            corner_radius=17,
+            font=ctk.CTkFont(size=13)
+        )
+        self.quality_combo.pack(anchor="w")
         
-        # 输出目录框架
-        output_frame = ctk.CTkFrame(settings_frame)
-        output_frame.pack(side="left", fill="x", expand=True, padx=(0, 20))
+        # 输出目录设置
+        output_container = ctk.CTkFrame(settings_frame, fg_color="transparent")
+        output_container.grid(row=1, column=1, sticky="ew", padx=20, pady=(0, 20))
         
-        output_label = ctk.CTkLabel(output_frame, text="输出目录:")
-        output_label.pack(side="left", padx=(0, 10))
+        output_label = ctk.CTkLabel(
+            output_container, 
+            text="📁 输出目录:", 
+            font=ctk.CTkFont(size=14)
+        )
+        output_label.pack(anchor="w", pady=(0, 8))
         
-        self.output_entry = ctk.CTkEntry(output_frame)
-        self.output_entry.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        self.output_entry.insert(0, "./downloads")  # 默认输出目录
+        output_entry_frame = ctk.CTkFrame(output_container, fg_color="transparent")
+        output_entry_frame.pack(fill="x")
+        output_entry_frame.grid_columnconfigure(0, weight=1)
         
-        browse_button = ctk.CTkButton(output_frame, text="浏览", 
-                                     command=self.browse_directory, width=60)
-        browse_button.pack(side="right")
+        self.output_entry = ctk.CTkEntry(
+            output_entry_frame,
+            placeholder_text="选择下载目录",
+            height=35,
+            corner_radius=17,
+            font=ctk.CTkFont(size=13)
+        )
+        self.output_entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        self.output_entry.insert(0, "./downloads")
         
-        # 登录状态框架
-        login_frame = ctk.CTkFrame(main_frame)
-        login_frame.pack(fill="x", padx=20, pady=10)
+        browse_button = ctk.CTkButton(
+            output_entry_frame,
+            text="📂",
+            command=self.browse_directory,
+            width=40,
+            height=35,
+            corner_radius=17
+        )
+        browse_button.grid(row=0, column=1)
         
-        self.login_status_label = ctk.CTkLabel(login_frame, text="登录状态: 未登录")
-        self.login_status_label.pack(side="left")
+    def create_video_list_section(self, parent):
+        """创建视频列表区域"""
+        list_frame = ctk.CTkFrame(parent, corner_radius=15)
+        list_frame.grid(row=3, column=0, sticky="ew", padx=20, pady=10)
+        list_frame.grid_columnconfigure(0, weight=1)
+        list_frame.grid_rowconfigure(1, weight=1)
         
-        login_button = ctk.CTkButton(login_frame, text="扫码登录", 
-                                    command=self.login, width=80)
-        login_button.pack(side="right")
+        # 列表标题
+        list_header = ctk.CTkFrame(list_frame, fg_color="transparent")
+        list_header.grid(row=0, column=0, sticky="ew", padx=20, pady=(20, 10))
+        list_header.grid_columnconfigure(1, weight=1)
         
-        # 进度条
-        self.progress_bar = ctk.CTkProgressBar(main_frame)
-        self.progress_bar.pack(fill="x", padx=20, pady=10)
-        self.progress_bar.set(0)
+        list_title = ctk.CTkLabel(
+            list_header, 
+            text="📋 待下载列表", 
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        list_title.grid(row=0, column=0, sticky="w")
+        
+        # 列表统计信息
+        self.list_stats_label = ctk.CTkLabel(
+            list_header,
+            text="共 0 个视频",
+            font=ctk.CTkFont(size=12),
+            text_color=("gray60", "gray40")
+        )
+        self.list_stats_label.grid(row=0, column=1, sticky="e")
+        
+        # 清空列表按钮
+        clear_button = ctk.CTkButton(
+            list_header,
+            text="🗑️ 清空",
+            command=self.clear_video_list,
+            width=80,
+            height=28,
+            corner_radius=14,
+            font=ctk.CTkFont(size=12)
+        )
+        clear_button.grid(row=0, column=2, padx=(10, 0))
+        
+        # 创建滚动列表区域
+        self.list_scroll_frame = ctk.CTkScrollableFrame(
+            list_frame, 
+            height=300,
+            corner_radius=10
+        )
+        self.list_scroll_frame.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 20))
+        self.list_scroll_frame.grid_columnconfigure(0, weight=1)
+        
+        # 空列表提示
+        self.empty_list_label = ctk.CTkLabel(
+            self.list_scroll_frame,
+            text="📝 暂无视频，请添加视频链接",
+            font=ctk.CTkFont(size=14),
+            text_color=("gray50", "gray50")
+        )
+        self.empty_list_label.grid(row=0, column=0, pady=50)
+        
+    def create_status_section(self, parent):
+        """创建状态和控制区域"""
+        # 状态区域
+        status_frame = ctk.CTkFrame(parent, corner_radius=15)
+        status_frame.grid(row=4, column=0, sticky="ew", padx=20, pady=10)
+        status_frame.grid_columnconfigure(0, weight=1)
+        
+        # 状态标题
+        status_label = ctk.CTkLabel(
+            status_frame, 
+            text="📊 运行状态", 
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        status_label.grid(row=0, column=0, sticky="w", padx=20, pady=(20, 10))
+        
+        # 总体进度条
+        progress_container = ctk.CTkFrame(status_frame, fg_color="transparent")
+        progress_container.grid(row=1, column=0, sticky="ew", padx=20, pady=(0, 10))
+        progress_container.grid_columnconfigure(0, weight=1)
+        
+        self.overall_progress_label = ctk.CTkLabel(
+            progress_container,
+            text="总体进度: 0/0",
+            font=ctk.CTkFont(size=12)
+        )
+        self.overall_progress_label.grid(row=0, column=0, sticky="w", pady=(0, 5))
+        
+        self.overall_progress_bar = ctk.CTkProgressBar(
+            progress_container,
+            height=8,
+            corner_radius=4
+        )
+        self.overall_progress_bar.grid(row=1, column=0, sticky="ew")
+        self.overall_progress_bar.set(0)
         
         # 状态文本框
-        self.status_textbox = ctk.CTkTextbox(main_frame)
-        self.status_textbox.pack(fill="both", expand=True, padx=20, pady=(10, 20))
-        self.status_textbox.insert("0.0", "欢迎使用Bilibili视频下载器!\n\n")
+        self.status_textbox = ctk.CTkTextbox(
+            status_frame,
+            height=150,
+            corner_radius=10,
+            font=ctk.CTkFont(family="Consolas", size=12)
+        )
+        self.status_textbox.grid(row=2, column=0, sticky="ew", padx=20, pady=(10, 20))
+        self.status_textbox.insert("0.0", "🎉 欢迎使用Bilibili视频下载器!\n")
+        
+        # 下载控制区域
+        control_frame = ctk.CTkFrame(parent, corner_radius=15)
+        control_frame.grid(row=5, column=0, sticky="ew", padx=20, pady=(10, 20))
+        control_frame.grid_columnconfigure(0, weight=1)
         
         # 下载按钮
-        self.download_button = ctk.CTkButton(main_frame, text="开始下载", 
-                                            command=self.start_download,
-                                            height=40, font=ctk.CTkFont(size=14))
-        self.download_button.pack(fill="x", padx=20, pady=(0, 20))
+        self.download_button = ctk.CTkButton(
+            control_frame,
+            text="🚀 开始下载",
+            command=self.start_download,
+            height=50,
+            corner_radius=25,
+            font=ctk.CTkFont(size=16, weight="bold")
+        )
+        self.download_button.grid(row=0, column=0, sticky="ew", padx=20, pady=20)
         
-    def _on_mousewheel(self, event):
-        """处理鼠标滚轮事件"""
-        self.list_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+    def clear_video_list(self):
+        """清空视频列表"""
+        if not self.video_list:
+            return
+            
+        self.video_list.clear()
+        self.update_video_list_ui()
+        self.append_status("🗑️ 已清空视频列表")
         
     def add_video_to_list(self):
         """添加视频到下载列表"""
         url = self.url_entry.get().strip()
         if not url:
-            self.append_status("请输入视频链接!\n")
+            self.append_status("❌ 请输入视频链接!")
             return
             
         # 提取BV号
         bvid = self.extract_bv_id(url)
         if not bvid:
-            self.append_status("无法从链接中提取BV号，请检查链接格式!\n")
+            self.append_status("❌ 无法从链接中提取BV号，请检查链接格式!")
             return
             
         # 检查是否已存在
         if any(video.bvid == bvid for video in self.video_list):
-            self.append_status(f"视频 {bvid} 已在下载列表中!\n")
+            self.append_status(f"⚠️ 视频 {bvid} 已在下载列表中!")
             return
             
         # 创建视频项目并添加到列表
@@ -245,14 +438,17 @@ class BilibiliVideoDownloaderGUI:
         thread.daemon = True
         thread.start()
         
-        self.append_status(f"已添加视频 {bvid} 到下载列表，正在获取详细信息...\n")
+        # 清空输入框
+        self.url_entry.delete(0, "end")
+        
+        self.append_status(f"➕ 已添加视频 {bvid} 到下载列表，正在获取详细信息...")
+        self.update_video_list_ui()
         
     def extract_bv_id(self, url):
         """从URL中提取BV号"""
-        # 匹配BV号的正则表达式
         patterns = [
-            r"BV[0-9A-Za-z]{10}",  # 标准BV号格式
-            r"bilibili\.com/video/(BV[0-9A-Za-z]{10})",  # URL中的BV号
+            r"BV[0-9A-Za-z]{10}",
+            r"bilibili\.com/video/(BV[0-9A-Za-z]{10})",
         ]
         
         for pattern in patterns:
@@ -265,18 +461,16 @@ class BilibiliVideoDownloaderGUI:
     def fetch_video_info(self, video_item):
         """获取视频详细信息"""
         try:
-            # 创建事件循环
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             loop.run_until_complete(self._fetch_video_info_async(video_item))
             loop.close()
         except Exception as e:
-            self.append_status(f"获取视频 {video_item.bvid} 信息失败: {str(e)}\n")
+            self.append_status(f"❌ 获取视频 {video_item.bvid} 信息失败: {str(e)}")
     
     async def _fetch_video_info_async(self, video_item):
         """异步获取视频详细信息"""
         try:
-            # 使用BilibiliClient获取视频信息
             from backend.bilibili.client import BilibiliClient
             
             client = BilibiliClient()
@@ -297,118 +491,139 @@ class BilibiliVideoDownloaderGUI:
                     if response.status_code == 200:
                         image_data = response.content
                         video_item.cover_image = Image.open(io.BytesIO(image_data))
-                        # 调整图片大小
-                        video_item.cover_image = video_item.cover_image.resize((80, 60), Image.LANCZOS)
-                        # 转换为tkinter可用的格式
+                        video_item.cover_image = video_item.cover_image.resize((100, 75), Image.LANCZOS)
                         video_item.cover_photo = ImageTk.PhotoImage(video_item.cover_image)
                 
-                # 更新UI
                 self.root.after(0, self.update_video_list_ui)
-                self.append_status(f"已获取视频 {video_item.bvid} 的详细信息\n")
+                self.append_status(f"✅ 已获取视频 {video_item.bvid} 的详细信息")
             else:
-                self.append_status(f"获取视频 {video_item.bvid} 信息失败: {video_info.get('message', '未知错误')}\n")
-                # 更新UI
+                self.append_status(f"❌ 获取视频 {video_item.bvid} 信息失败: {video_info.get('message', '未知错误')}")
                 self.root.after(0, self.update_video_list_ui)
         except Exception as e:
-            self.append_status(f"获取视频 {video_item.bvid} 信息时出错: {str(e)}\n")
-            # 更新UI
+            self.append_status(f"❌ 获取视频 {video_item.bvid} 信息时出错: {str(e)}")
             self.root.after(0, self.update_video_list_ui)
     
     def update_video_list_ui(self):
         """更新视频列表UI"""
         # 清空当前列表显示
-        for widget in self.list_scrollable_frame.winfo_children():
+        for widget in self.list_scroll_frame.winfo_children():
             widget.destroy()
             
-        # 为整个列表添加统一的左右边距
-        list_padding = ctk.CTkFrame(self.list_scrollable_frame, fg_color="transparent")
-        list_padding.pack(fill="both", expand=True, padx=0, pady=0)
+        # 更新统计信息
+        self.list_stats_label.configure(text=f"共 {len(self.video_list)} 个视频")
+        
+        if not self.video_list:
+            # 显示空列表提示
+            self.empty_list_label = ctk.CTkLabel(
+                self.list_scroll_frame,
+                text="📝 暂无视频，请添加视频链接",
+                font=ctk.CTkFont(size=14),
+                text_color=("gray50", "gray50")
+            )
+            self.empty_list_label.grid(row=0, column=0, pady=50)
+            return
         
         # 添加视频项到列表
         for i, video in enumerate(self.video_list):
-            # 视频项主框架，使用与列表相同宽度并添加内边距
-            item_frame = ctk.CTkFrame(list_padding, corner_radius=6)
-            item_frame.pack(fill="x", padx=5, pady=5)
-            video.list_item_frame = item_frame  # 保存框架引用
+            # 创建视频卡片
+            card = ctk.CTkFrame(self.list_scroll_frame, corner_radius=10)
+            card.grid(row=i, column=0, sticky="ew", padx=10, pady=8)
+            card.grid_columnconfigure(1, weight=1)
+            video.list_item_frame = card
             
-            # 内容框架，使用左右内边距确保内容不贴边
-            content_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
-            content_frame.pack(fill="both", expand=True, padx=10, pady=10)
-            
-            # 封面图片区域
-            cover_frame = ctk.CTkFrame(content_frame, width=80, height=60, fg_color="transparent")
-            cover_frame.pack(side="left", padx=(0, 15), pady=0)
-            cover_frame.pack_propagate(False)  # 保持固定大小
+            # 封面区域
+            cover_frame = ctk.CTkFrame(card, width=100, height=75, corner_radius=8)
+            cover_frame.grid(row=0, column=0, rowspan=2, padx=15, pady=15)
+            cover_frame.grid_propagate(False)
             
             if video.cover_photo:
                 cover_label = ctk.CTkLabel(cover_frame, image=video.cover_photo, text="")
-                cover_label.pack(expand=True)
+                cover_label.place(relx=0.5, rely=0.5, anchor="center")
             else:
-                cover_label = ctk.CTkLabel(cover_frame, text="无封面", font=("Arial", 8))
-                cover_label.pack(expand=True)
+                cover_label = ctk.CTkLabel(cover_frame, text="📷\n加载中", font=ctk.CTkFont(size=10))
+                cover_label.place(relx=0.5, rely=0.5, anchor="center")
             
-            # 中间信息区域
-            info_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
-            info_frame.pack(side="left", fill="x", expand=True, pady=0)
+            # 信息区域
+            info_frame = ctk.CTkFrame(card, fg_color="transparent")
+            info_frame.grid(row=0, column=1, sticky="ew", padx=(0, 15), pady=(15, 5))
+            info_frame.grid_columnconfigure(0, weight=1)
             
             # 标题
             title_text = video.title if video.title else "获取中..."
-            title_label = ctk.CTkLabel(info_frame, text=title_text, anchor="w", wraplength=250)
-            title_label.pack(fill="x")
-            
-            # BV号
-            bvid_label = ctk.CTkLabel(info_frame, text=f"BV号: {video.bvid}", anchor="w", 
-                                     font=ctk.CTkFont(size=12))
-            bvid_label.pack(fill="x", pady=(3, 0))
-            
-            # 右侧操作区域
-            action_frame = ctk.CTkFrame(content_frame, fg_color="transparent")
-            action_frame.pack(side="right", padx=(10, 0), pady=0)
-            
-            # 删除按钮
-            remove_button = ctk.CTkButton(
-                action_frame, 
-                text="删除",
-                width=60,
-                height=25,
-                command=lambda v=video: self.remove_video_from_list(v)
+            title_label = ctk.CTkLabel(
+                info_frame, 
+                text=title_text, 
+                anchor="w", 
+                wraplength=400,
+                font=ctk.CTkFont(size=14, weight="bold")
             )
-            remove_button.pack()
+            title_label.grid(row=0, column=0, sticky="ew")
             
-            # 进度信息区域
-            progress_container = ctk.CTkFrame(item_frame, fg_color="transparent")
-            progress_container.pack(fill="x", padx=10, pady=(0, 10))
+            # BV号和操作按钮
+            bv_frame = ctk.CTkFrame(info_frame, fg_color="transparent")
+            bv_frame.grid(row=1, column=0, sticky="ew", pady=(5, 0))
+            bv_frame.grid_columnconfigure(0, weight=1)
             
-            # 进度条和状态信息
-            progress_frame = ctk.CTkFrame(progress_container, fg_color="transparent")
-            progress_frame.pack(fill="x", expand=True)
+            bvid_label = ctk.CTkLabel(
+                bv_frame, 
+                text=f"🎬 {video.bvid}", 
+                anchor="w", 
+                font=ctk.CTkFont(size=12),
+                text_color=("gray60", "gray40")
+            )
+            bvid_label.grid(row=0, column=0, sticky="w")
+            
+            remove_button = ctk.CTkButton(
+                bv_frame,
+                text="🗑️",
+                width=30,
+                height=25,
+                corner_radius=12,
+                command=lambda v=video: self.remove_video_from_list(v),
+                font=ctk.CTkFont(size=12)
+            )
+            remove_button.grid(row=0, column=1, sticky="e")
+            
+            # 进度区域
+            progress_frame = ctk.CTkFrame(card, fg_color="transparent")
+            progress_frame.grid(row=1, column=1, sticky="ew", padx=(0, 15), pady=(5, 15))
+            progress_frame.grid_columnconfigure(0, weight=1)
             
             # 进度条
-            progress_bar = ctk.CTkProgressBar(progress_frame)
-            progress_bar.pack(side="left", fill="x", expand=True)
+            progress_bar = ctk.CTkProgressBar(progress_frame, height=6, corner_radius=3)
+            progress_bar.grid(row=0, column=0, sticky="ew", padx=(0, 10))
             progress_bar.set(0)
             video.progress_bar = progress_bar
             
-            # 进度百分比
-            progress_label = ctk.CTkLabel(progress_frame, text="0%", width=40)
-            progress_label.pack(side="left", padx=(10, 5))
+            # 进度信息
+            progress_info_frame = ctk.CTkFrame(progress_frame, fg_color="transparent")
+            progress_info_frame.grid(row=1, column=0, sticky="ew", pady=(5, 0))
+            progress_info_frame.grid_columnconfigure(1, weight=1)
+            
+            progress_label = ctk.CTkLabel(
+                progress_info_frame, 
+                text="0%", 
+                font=ctk.CTkFont(size=11),
+                width=40
+            )
+            progress_label.grid(row=0, column=0, sticky="w")
             video.progress_label = progress_label
             
-            # 状态标签
-            status_label = ctk.CTkLabel(progress_frame, text="等待下载")
-            status_label.pack(side="right")
+            status_label = ctk.CTkLabel(
+                progress_info_frame, 
+                text="等待下载",
+                font=ctk.CTkFont(size=11),
+                text_color=("gray60", "gray40")
+            )
+            status_label.grid(row=0, column=2, sticky="e")
             video.status_label = status_label
             
-        # 更新滚动区域
-        self.list_canvas.update_idletasks()
-        self.list_canvas.configure(scrollregion=self.list_canvas.bbox("all"))
-        
     def remove_video_from_list(self, video_item):
         """从下载列表中删除视频"""
         if video_item in self.video_list:
             self.video_list.remove(video_item)
             self.update_video_list_ui()
-            self.append_status(f"已从下载列表中删除视频 {video_item.bvid}\n")
+            self.append_status(f"🗑️ 已从下载列表中删除视频 {video_item.bvid}")
         
     def browse_directory(self):
         """浏览并选择输出目录"""
@@ -421,13 +636,12 @@ class BilibiliVideoDownloaderGUI:
     def login(self):
         """执行登录操作"""
         def login_task():
-            self.append_status("正在启动登录流程...\n")
+            self.append_status("🔑 正在启动登录流程...")
             try:
-                # 使用自定义的二维码登录方法
                 self.qr_login_gui()
             except Exception as e:
-                self.append_status(f"登录过程中出现错误: {str(e)}\n")
-                self.update_login_status("登录失败")
+                self.append_status(f"❌ 登录过程中出现错误: {str(e)}")
+                self.update_login_status("登录失败", False)
                 
         login_thread = threading.Thread(target=login_task)
         login_thread.daemon = True
@@ -436,21 +650,20 @@ class BilibiliVideoDownloaderGUI:
     def qr_login_gui(self):
         """在GUI中执行二维码登录"""
         try:
-            # 创建新的事件循环
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             result = loop.run_until_complete(self._qr_login_gui_async())
             loop.close()
             
             if result:
-                self.append_status("登录成功!\n")
-                self.update_login_status("已登录")
+                self.append_status("✅ 登录成功!")
+                self.update_login_status("已登录", True)
             else:
-                self.append_status("登录失败!\n")
-                self.update_login_status("登录失败")
+                self.append_status("❌ 登录失败!")
+                self.update_login_status("登录失败", False)
         except Exception as e:
-            self.append_status(f"登录过程中出现错误: {str(e)}\n")
-            self.update_login_status("登录失败")
+            self.append_status(f"❌ 登录过程中出现错误: {str(e)}")
+            self.update_login_status("登录失败", False)
     
     async def _qr_login_gui_async(self):
         """异步执行二维码登录并在GUI中显示二维码"""
@@ -458,78 +671,68 @@ class BilibiliVideoDownloaderGUI:
             from backend.bilibili.auth import BilibiliAuth
             
             async with BilibiliAuth() as auth:
-                # 获取二维码
-                self.append_status("正在生成二维码...\n")
+                self.append_status("📱 正在生成二维码...")
                 qr_data = await auth.login_with_qr()
                 
                 if qr_data['status'] != 'qr_ready':
-                    self.append_status(f"获取二维码失败: {qr_data['message']}\n")
+                    self.append_status(f"❌ 获取二维码失败: {qr_data['message']}")
                     return False
                 
                 # 显示二维码到GUI
                 qr_image_data = qr_data['qr_image']
                 qrcode_key = qr_data['qrcode_key']
                 
-                # 解码base64数据
                 header, encoded = qr_image_data.split(",", 1)
                 qr_bytes = base64.b64decode(encoded)
-                
-                # 创建PIL图像
                 image = Image.open(io.BytesIO(qr_bytes))
                 
-                # 在GUI中显示二维码
                 self.show_qr_code(image)
-                
-                self.append_status("请使用Bilibili手机客户端扫描二维码\n")
+                self.append_status("📱 请使用Bilibili手机客户端扫描二维码")
                 
                 # 轮询检查扫码状态
-                max_attempts = 100  # 最大尝试次数
+                max_attempts = 100
                 attempt = 0
                 
                 while attempt < max_attempts:
                     status = await auth.check_qr_status(qrcode_key)
                     
                     if status['status'] == 'success':
-                        self.append_status("登录成功!\n")
-                        self.close_qr_window()  # 关闭二维码窗口
+                        self.append_status("✅ 登录成功!")
+                        self.close_qr_window()
                         
-                        # 保存cookies
                         cookies = status['cookies']
-                        # 获取用户信息
                         user_info = await self._get_user_info_with_cookies(cookies)
                         user_id = user_info.get('mid', 'unknown_user')
                         
-                        # 保存到cookie管理器
                         from backend.utils.cookie_manager import cookie_manager
                         cookie_manager.save_cookies(user_id, cookies, user_info)
                         
-                        # 更新当前实例的cookies
                         self.downloader.cookies = cookies
-                        self.append_status(f"已保存用户: {user_info.get('uname', user_id)}\n")
+                        self.append_status(f"👤 已保存用户: {user_info.get('uname', user_id)}")
                         return True
                         
                     elif status['status'] == 'waiting':
-                        self.append_status("等待扫码...\n", replace_last=True)
+                        self.append_status("⏳ 等待扫码...", replace_last=True)
                     elif status['status'] == 'scanned':
-                        self.append_status("已扫码，等待确认...\n", replace_last=True)
+                        self.append_status("📱 已扫码，等待确认...", replace_last=True)
                     elif status['status'] == 'expired':
-                        self.append_status("二维码已过期，请重新登录\n")
-                        self.close_qr_window()  # 关闭二维码窗口
+                        self.append_status("⏰ 二维码已过期，请重新登录")
+                        self.close_qr_window()
                         return False
                     else:
-                        self.append_status(f"登录出错: {status['message']}\n")
-                        self.close_qr_window()  # 关闭二维码窗口
+                        self.append_status(f"❌ 登录出错: {status['message']}")
+                        self.close_qr_window()
                         return False
                     
                     attempt += 1
-                    await asyncio.sleep(3)  # 每3秒检查一次
+                    await asyncio.sleep(3)
                 
-                self.append_status("登录超时，请重新登录\n")
-                self.close_qr_window()  # 关闭二维码窗口
+                self.append_status("⏰ 登录超时，请重新登录")
+                self.close_qr_window()
                 return False
         except Exception as e:
-            self.append_status(f"扫码登录异常: {str(e)}\n")
-            self.close_qr_window()  # 关闭二维码窗口
+            self.append_status(f"❌ 扫码登录异常: {str(e)}")
+            self.close_qr_window()
             return False
     
     async def _get_user_info_with_cookies(self, cookies: dict):
@@ -542,51 +745,97 @@ class BilibiliVideoDownloaderGUI:
             user_info = await client.get_user_info()
             return user_info
         except Exception as e:
-            self.append_status(f"获取用户信息失败: {str(e)}\n")
+            self.append_status(f"❌ 获取用户信息失败: {str(e)}")
             return {}
     
     def show_qr_code(self, image: Image.Image):
         """在新窗口中显示二维码"""
-        # 如果二维码窗口已经存在，先关闭它
         self.close_qr_window()
         
-        # 创建新窗口
+        # 创建现代化的二维码窗口
         self.qr_window = ctk.CTkToplevel(self.root)
-        self.qr_window.title("扫码登录")
-        self.qr_window.geometry("300x350")
+        self.qr_window.title("🔑 扫码登录")
+        self.qr_window.geometry("400x500")
         self.qr_window.resizable(False, False)
         
-        # 确保窗口在最前面
+        # 设置窗口属性
         self.qr_window.lift()
         self.qr_window.focus_force()
+        self.qr_window.wm_attributes("-alpha", 0.98)
         
-        # 添加说明文字
-        instruction_label = ctk.CTkLabel(
-            self.qr_window, 
-            text="请使用Bilibili手机客户端扫描二维码",
-            wraplength=250
+        # 主容器
+        main_container = ctk.CTkFrame(self.qr_window, corner_radius=20)
+        main_container.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # 标题区域
+        title_frame = ctk.CTkFrame(main_container, fg_color="transparent")
+        title_frame.pack(fill="x", padx=20, pady=(20, 10))
+        
+        title_label = ctk.CTkLabel(
+            title_frame,
+            text="🔑 扫码登录",
+            font=ctk.CTkFont(size=24, weight="bold")
         )
-        instruction_label.pack(pady=(20, 10))
+        title_label.pack()
         
-        # 调整图像大小
-        image = image.resize((256, 256), Image.LANCZOS)
+        subtitle_label = ctk.CTkLabel(
+            title_frame,
+            text="请使用Bilibili手机客户端扫描下方二维码",
+            font=ctk.CTkFont(size=14),
+            text_color=("gray60", "gray40")
+        )
+        subtitle_label.pack(pady=(5, 0))
         
-        # 转换为CTk可以显示的格式
+        # 二维码容器
+        qr_container = ctk.CTkFrame(main_container, corner_radius=15)
+        qr_container.pack(padx=20, pady=20)
+        
+        # 调整图像大小并添加边框
+        image = image.resize((280, 280), Image.LANCZOS)
         self.qr_image = ImageTk.PhotoImage(image)
         
-        # 创建显示二维码的标签
-        self.qr_label = ctk.CTkLabel(self.qr_window, image=self.qr_image, text="")
-        self.qr_label.pack(pady=10)
-        
-        # 添加关闭按钮
-        close_button = ctk.CTkButton(
-            self.qr_window, 
-            text="关闭", 
-            command=self.close_qr_window
+        self.qr_label = ctk.CTkLabel(
+            qr_container, 
+            image=self.qr_image, 
+            text="",
+            corner_radius=10
         )
-        close_button.pack(pady=10)
+        self.qr_label.pack(padx=15, pady=15)
         
-        # 确保窗口关闭时清理资源
+        # 说明文字
+        info_frame = ctk.CTkFrame(main_container, fg_color="transparent")
+        info_frame.pack(fill="x", padx=20, pady=(0, 10))
+        
+        steps = [
+            "1️⃣ 打开Bilibili手机客户端",
+            "2️⃣ 点击右下角「我的」",
+            "3️⃣ 点击右上角扫码图标",
+            "4️⃣ 扫描上方二维码并确认登录"
+        ]
+        
+        for step in steps:
+            step_label = ctk.CTkLabel(
+                info_frame,
+                text=step,
+                font=ctk.CTkFont(size=12),
+                anchor="w"
+            )
+            step_label.pack(fill="x", pady=2)
+        
+        # 按钮区域
+        button_frame = ctk.CTkFrame(main_container, fg_color="transparent")
+        button_frame.pack(fill="x", padx=20, pady=(10, 20))
+        
+        close_button = ctk.CTkButton(
+            button_frame,
+            text="❌ 关闭",
+            command=self.close_qr_window,
+            height=35,
+            corner_radius=17,
+            font=ctk.CTkFont(size=14)
+        )
+        close_button.pack()
+        
         self.qr_window.protocol("WM_DELETE_WINDOW", self.close_qr_window)
     
     def close_qr_window(self):
@@ -600,26 +849,38 @@ class BilibiliVideoDownloaderGUI:
         self.qr_image = None
         self.qr_label = None
     
-    def update_login_status(self, status):
+    def update_login_status(self, status, is_logged_in=False):
         """更新登录状态显示"""
-        # 检查标签是否存在
-        if self.login_status_label is not None and self.login_status_label.winfo_exists():
-            self.login_status_label.configure(text=f"登录状态: {status}")
+        if self.login_status_label and self.login_status_label.winfo_exists():
+            self.login_status_label.configure(text=status)
+            
+        # 更新状态指示器颜色
+        if self.login_status_indicator and self.login_status_indicator.winfo_exists():
+            if is_logged_in:
+                self.login_status_indicator.configure(fg_color="#22c55e")  # 绿色
+                self.login_button.configure(text="✅ 已登录")
+            else:
+                self.login_status_indicator.configure(fg_color="#ef4444")  # 红色
+                self.login_button.configure(text="🔑 扫码登录")
         
     def append_status(self, text, replace_last=False):
         """向状态文本框添加文本"""
         if replace_last:
-            # 删除最后一行并替换
             self.status_textbox.delete("end-1c linestart", "end-1c")
         
-        self.status_textbox.insert("end", text)
+        # 添加时间戳
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        formatted_text = f"[{timestamp}] {text}\n"
+        
+        self.status_textbox.insert("end", formatted_text)
         self.status_textbox.see("end")
         self.root.update()
         
     def start_download(self):
         """开始下载视频"""
         if not self.video_list:
-            self.append_status("请先添加视频到下载列表!\n")
+            self.append_status("❌ 请先添加视频到下载列表!")
             return
             
         # 解析选中的质量
@@ -630,8 +891,12 @@ class BilibiliVideoDownloaderGUI:
         if not output_dir:
             output_dir = "./downloads"
             
-        # 禁用下载按钮
-        self.download_button.configure(state="disabled", text="下载中...")
+        # 更新下载按钮状态
+        self.download_button.configure(state="disabled", text="⏳ 下载中...")
+        
+        # 重置总体进度
+        self.overall_progress_bar.set(0)
+        self.overall_progress_label.configure(text=f"总体进度: 0/{len(self.video_list)}")
         
         # 在后台线程中执行下载
         self.download_thread = threading.Thread(
@@ -642,33 +907,27 @@ class BilibiliVideoDownloaderGUI:
         self.download_thread.start()
         
     def download_videos(self, quality, output_dir):
-        """在后台线程中下载所有视频（支持多线程）"""
+        """在后台线程中下载所有视频"""
         try:
             total_videos = len(self.video_list)
-            self.append_status(f"开始下载 {total_videos} 个视频...\n")
+            self.append_status(f"🚀 开始下载 {total_videos} 个视频...")
             
-            # 使用线程池并发下载多个视频
             import concurrent.futures
-            max_workers = min(3, total_videos)  # 最多同时下载3个视频
+            max_workers = min(3, total_videos)
             
             def download_single_video(video_item):
                 """下载单个视频"""
-                # 更新UI状态
                 self.root.after(0, lambda: self.update_video_status(video_item, "准备下载...", 0))
                 
-                # 使用 asyncio 运行下载任务
                 async def download_task():
-                    # 确保客户端已初始化
                     init_result = await self.downloader.init_client()
                     if not init_result:
                         self.root.after(0, lambda: self.update_video_status(video_item, "初始化失败", 0))
                         return False
                     
-                    # 定义进度回调函数
                     def progress_callback(status, progress):
                         self.root.after(0, lambda: self.update_video_status(video_item, status, progress))
                     
-                    # 下载视频
                     success = await self.downloader.download_video(
                         video_item.bvid, quality, output_dir, progress_callback
                     )
@@ -681,36 +940,45 @@ class BilibiliVideoDownloaderGUI:
                     self.root.after(0, lambda: self.update_video_status(video_item, f"错误: {str(e)}", 0))
                     return video_item, False
             
-            # 使用线程池执行下载任务
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # 提交所有下载任务
                 future_to_video = {
                     executor.submit(download_single_video, video): video 
                     for video in self.video_list
                 }
                 
-                # 等待所有任务完成
                 success_count = 0
+                completed_count = 0
+                
                 for future in concurrent.futures.as_completed(future_to_video):
                     video_item, success = future.result()
+                    completed_count += 1
+                    
                     if success:
                         success_count += 1
-                        self.root.after(0, lambda v=video_item: self.update_video_status(v, "下载完成", 1.0))
+                        self.root.after(0, lambda v=video_item: self.update_video_status(v, "✅ 下载完成", 1.0))
                     else:
-                        self.root.after(0, lambda v=video_item: self.update_video_status(v, "下载失败", 0))
+                        self.root.after(0, lambda v=video_item: self.update_video_status(v, "❌ 下载失败", 0))
+                    
+                    # 更新总体进度
+                    overall_progress = completed_count / total_videos
+                    self.root.after(0, lambda p=overall_progress, c=completed_count, t=total_videos: (
+                        self.overall_progress_bar.set(p),
+                        self.overall_progress_label.configure(text=f"总体进度: {c}/{t}")
+                    ))
                 
-                # 更新总体状态
-                self.root.after(0, lambda: self.append_status(
-                    f"下载完成: {success_count}/{total_videos} 个视频下载成功\n"
-                ))
+                # 显示最终结果
+                if success_count == total_videos:
+                    self.root.after(0, lambda: self.append_status(f"🎉 全部下载完成! {success_count}/{total_videos} 个视频下载成功"))
+                else:
+                    self.root.after(0, lambda: self.append_status(f"📊 下载完成: {success_count}/{total_videos} 个视频下载成功"))
                 
         except Exception as e:
-            self.append_status(f"下载过程中出现错误: {str(e)}\n")
+            self.append_status(f"❌ 下载过程中出现错误: {str(e)}")
         finally:
             # 重新启用下载按钮
             def reset_button():
                 if self.download_button.winfo_exists():
-                    self.download_button.configure(state="normal", text="开始下载")
+                    self.download_button.configure(state="normal", text="🚀 开始下载")
             
             self.root.after(0, reset_button)
             
