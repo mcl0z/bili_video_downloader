@@ -49,7 +49,7 @@ pip install -r requirements.txt
 ```
 
 ## 使用方法
-
+新手可以直接使用 tui 版本（tui_xx.py）可以并发下载
 ### 基本用法
 
 ```bash
