@@ -91,7 +91,7 @@ class VideoDownloader:
                 qr_image_data = qr_data['qr_image']
                 qrcode_key = qr_data['qrcode_key']
                 
-                # 将base64数据写入临时文件以供显示
+                # 将base64数据写入本地文件并打开
                 try:
                     # 解码base64数据
                     header, encoded = qr_image_data.split(",", 1)
@@ -100,24 +100,34 @@ class VideoDownloader:
                     # 创建PIL图像
                     image = Image.open(io.BytesIO(qr_bytes))
                     
-                    # 保存到临时文件
+                    # 保存到本地文件
                     qr_filename = "bilibili_qr.png"
                     image.save(qr_filename)
-                    print(f"二维码已保存为 {qr_filename}，请使用Bilibili手机客户端扫描")
                     
-                    # 尝试在终端中显示二维码
-                    self._display_qr_in_terminal(image)
+                    print(f"二维码已保存为 {qr_filename}")
+                    print("正在打开二维码图片，请使用Bilibili手机客户端扫描...")
+                    
+                    # 自动打开图片
+                    import subprocess
+                    import platform
+                    
+                    system = platform.system()
+                    try:
+                        if system == "Windows":
+                            os.startfile(qr_filename)
+                        elif system == "Darwin":  # macOS
+                            subprocess.run(["open", qr_filename])
+                        else:  # Linux
+                            subprocess.run(["xdg-open", qr_filename])
+                        print("二维码图片已打开")
+                    except Exception as e:
+                        print(f"无法自动打开图片: {e}")
+                        print(f"请手动打开文件: {os.path.abspath(qr_filename)}")
+                        
                 except Exception as e:
-                    print(f"无法显示二维码图片: {e}")
+                    print(f"保存二维码图片失败: {e}")
                     print("请使用Bilibili手机客户端扫描以下链接:")
                     print(f"二维码Key: {qrcode_key}")
-                    # 在某些系统上可以尝试打开图片
-                    try:
-                        import webbrowser
-                        import os
-                        webbrowser.open(f"file://{os.path.abspath(qr_filename)}")
-                    except:
-                        pass
                 
                 # 轮询检查扫码状态
                 max_attempts = 100  # 最大尝试次数
@@ -314,63 +324,101 @@ class VideoDownloader:
             print()
     
     async def download_stream(self, url: str, filename: str) -> bool:
-        """下载视频/音频流"""
-        try:
-            async with httpx.AsyncClient() as client:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Referer': 'https://www.bilibili.com/'
-                }
-                
-                async with client.stream('GET', url, headers=headers) as response:
-                    response.raise_for_status()
-                    total_size = int(response.headers.get('content-length', 0))
-                    
-                    downloaded = 0
-                    with open(filename, 'wb') as f:
-                        async for chunk in response.aiter_bytes(chunk_size=8192):
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            
-                            # 显示进度条
-                            if total_size > 0:
-                                self.progress_callback(downloaded, total_size, f"下载 {os.path.basename(filename)}:")
-                                
-            print(f"已下载: {filename}")
-            return True
-        except Exception as e:
-            print(f"\n下载 {filename} 失败: {e}")
-            return False
+        """下载视频/音频流（使用重试机制）"""
+        return await self.download_stream_with_progress(url, filename, None)
     
-    async def download_stream_with_progress(self, url: str, filename: str, progress_callback=None) -> bool:
-        """下载视频/音频流（支持进度更新）"""
-        try:
-            async with httpx.AsyncClient() as client:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Referer': 'https://www.bilibili.com/'
-                }
+    async def download_stream_with_progress(self, url: str, filename: str, progress_callback=None, max_retries: int = 3) -> bool:
+        """下载视频/音频流（支持进度更新和重试机制）"""
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://www.bilibili.com/',
+            'Accept': '*/*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive'
+        }
+        
+        for attempt in range(max_retries):
+            try:
+                print(f"尝试下载 {os.path.basename(filename)} (第 {attempt + 1}/{max_retries} 次)")
                 
-                async with client.stream('GET', url, headers=headers) as response:
-                    response.raise_for_status()
-                    total_size = int(response.headers.get('content-length', 0))
+                async with httpx.AsyncClient(
+                    timeout=60.0,
+                    follow_redirects=True,
+                    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
+                ) as client:
                     
-                    downloaded = 0
-                    with open(filename, 'wb') as f:
-                        async for chunk in response.aiter_bytes(chunk_size=8192):
-                            f.write(chunk)
-                            downloaded += len(chunk)
-                            
-                            # 更新进度
-                            if total_size > 0 and progress_callback:
-                                progress = downloaded / total_size
-                                progress_callback(progress, downloaded, total_size)
+                    async with client.stream('GET', url, headers=headers) as response:
+                        response.raise_for_status()
+                        total_size = int(response.headers.get('content-length', 0))
+                        
+                        if total_size == 0:
+                            print(f"警告: 无法获取文件大小，继续下载...")
+                        
+                        downloaded = 0
+                        last_progress = 0
+                        
+                        with open(filename, 'wb') as f:
+                            async for chunk in response.aiter_bytes(chunk_size=16384):
+                                f.write(chunk)
+                                downloaded += len(chunk)
                                 
-            print(f"已下载: {filename}")
-            return True
-        except Exception as e:
-            print(f"\n下载 {filename} 失败: {e}")
-            return False
+                                # 更新进度（避免过于频繁的更新）
+                                if total_size > 0 and progress_callback:
+                                    progress = downloaded / total_size
+                                    # 只有进度变化超过1%时才更新
+                                    if progress - last_progress > 0.01:
+                                        progress_callback(progress, downloaded, total_size)
+                                        last_progress = progress
+                        
+                        # 验证下载完整性
+                        if total_size > 0 and downloaded < total_size * 0.95:
+                            raise Exception(f"下载不完整: {downloaded}/{total_size} bytes")
+                        
+                        # 最终进度更新
+                        if progress_callback:
+                            progress_callback(1.0, downloaded, total_size)
+                            
+                        print(f"已下载: {filename} ({downloaded / 1024 / 1024:.1f}MB)")
+                        return True
+                        
+            except httpx.ReadTimeout as e:
+                print(f"\n下载超时: {e}")
+                if attempt < max_retries - 1:
+                    print("等待 5 秒后重试...")
+                    await asyncio.sleep(5)
+                    continue
+                return False
+                
+            except httpx.ConnectError as e:
+                print(f"\n连接错误: {e}")
+                if attempt < max_retries - 1:
+                    print("等待 3 秒后重试...")
+                    await asyncio.sleep(3)
+                    continue
+                return False
+                
+            except Exception as e:
+                error_msg = str(e)
+                if "peer closed connection" in error_msg or "incomplete message" in error_msg:
+                    print(f"\n连接中断: {e}")
+                    if attempt < max_retries - 1:
+                        print("等待 5 秒后重试...")
+                        await asyncio.sleep(5)
+                        continue
+                else:
+                    print(f"\n下载 {filename} 失败: {e}")
+                    return False
+                
+                # 清理不完整的文件
+                try:
+                    if os.path.exists(filename):
+                        os.remove(filename)
+                except:
+                    pass
+                    
+        print(f"下载 {filename} 失败，已达到最大重试次数")
+        return False
     
     def merge_video_audio(self, video_file: str, audio_file: str, output_file: str) -> bool:
         """合并视频和音频文件"""
@@ -409,9 +457,20 @@ class VideoDownloader:
             except Exception as e:
                 print(f"清理临时文件失败: {e}")
     
-    async def download_video(self, bvid: str, quality: int = 32, output_dir: str = "./downloads", progress_callback=None) -> bool:
-        """下载Bilibili视频（支持进度回调）"""
-        print(f"开始下载视频: {bvid}")
+    async def download_video(self, bvid: str, quality: int = 126, output_dir: str = "./downloads", progress_callback=None) -> bool:
+        """下载Bilibili视频（支持进度回调）
+        
+        quality参数说明:
+        - 126: 杜比视界 (需要大会员)
+        - 125: HDR真彩色 (需要大会员)
+        - 120: 4K超清 (需要大会员)
+        - 116: 1080P60高帧率 (需要大会员)
+        - 112: 1080P+高码率 (需要大会员)
+        - 80: 1080P高清 (需要登录)
+        - 64: 720P高清
+        - 32: 480P清晰
+        """
+        print(f"开始下载视频: {bvid}, 请求画质: {quality}")
         
         # 创建输出目录
         Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -570,23 +629,17 @@ async def main():
     """主函数"""
     if len(sys.argv) < 2:
         print("使用方法: python video_downloader.py <bvid> [quality] [output_dir]")
-        print("示例: python video_downloader.py BV1xx411c7mu")
-        print("示例: python video_downloader.py BV1xx411c7mu 32 ./videos")
+        print("画质参数说明:")
+        print("  126 - 杜比视界 (需要大会员)")
+        print("  125 - HDR真彩色 (需要大会员)")
+        print("  120 - 4K超清 (需要大会员)")
+        print("  116 - 1080P60高帧率 (需要大会员)")
+        print("  112 - 1080P+高码率 (需要大会员)")
+        print("  80  - 1080P高清 (需要登录)")
+        print("  64  - 720P高清")
+        print("  32  - 480P清晰")
+        print("\n示例: python video_downloader.py BV1xx411c7mu")
+        print("示例: python video_downloader.py BV1xx411c7mu 126 ./videos")
         return
     
-    bvid = sys.argv[1]
-    quality = int(sys.argv[2]) if len(sys.argv) > 2 else 32  # 默认改为32 (480p)
-    output_dir = sys.argv[3] if len(sys.argv) > 3 else "./downloads"
-    
-    downloader = VideoDownloader()
-    success = await downloader.download_video(bvid, quality, output_dir)
-    
-    if success:
-        print("下载成功!")
-    else:
-        print("下载失败!")
-        sys.exit(1)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    bvid

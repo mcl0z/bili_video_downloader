@@ -33,17 +33,21 @@ class TUIDownloader:
         self.download_queue: List[Dict] = []
         self.max_concurrent = 3
         self.quality_map = {
-            "1": (112, "1080p+"),
-            "2": (80, "1080p"),
-            "3": (64, "720p"),
-            "4": (32, "480p"),
-            "5": (16, "360p")
+            "1": (126, "杜比视界"),  # Dolby Vision
+            "2": (125, "HDR"),      # HDR真彩色
+            "3": (120, "4K"),       # 4K超清
+            "4": (116, "1080p60"),  # 1080P60高帧率
+            "5": (112, "1080p+"),   # 1080P+高码率
+            "6": (80, "1080p"),     # 1080P高清
+            "7": (64, "720p"),      # 720P高清
+            "8": (32, "480p"),      # 480P清晰
+            "9": (16, "360p")       # 360P流畅
         }
         
     def show_banner(self):
         self.console.print("\n[bold yellow]Bilibili 视频批量下载工具 (TUI版)[/bold yellow]")
         self.console.print("[dim]使用 Rich 库构建的终端用户界面[/dim]")
-        self.console.print("[cyan]支持批量下载 | 自动提取BV号 | 实时进度显示[/cyan]\n")
+        self.console.print("[cyan]支持批量下载 | 自动提取BV号 | 实时进度显示 | 4K/杜比视界下载[/cyan]\n")
     
     def extract_bvid_from_url(self, text: str) -> List[str]:
         """从文本中提取BV号"""
@@ -142,20 +146,25 @@ class TUIDownloader:
         self.console.print("\n[bold blue]请选择视频质量:[/bold blue]")
         
         quality_info = {
-            "1": (112, "1080p+", "高清画质"),
-            "2": (80, "1080p", "全高清"),
-            "3": (64, "720p", "高清"),
-            "4": (32, "480p", "标清"),
-            "5": (16, "360p", "流畅")
+            "1": (126, "杜比视界", "需要大会员"),
+            "2": (125, "HDR真彩色", "需要大会员"),
+            "3": (120, "4K超清", "需要大会员"),
+            "4": (116, "1080p60高帧率", "需要大会员"),
+            "5": (112, "1080p+高码率", "需要大会员"),
+            "6": (80, "1080p", "需要登录"),
+            "7": (64, "720p", "高清"),
+            "8": (32, "480p", "标清"),
+            "9": (16, "360p", "流畅")
         }
         
         for key, (code, desc, note) in quality_info.items():
-            self.console.print(f"  {key}. {desc} ({note})")
+            requirement = "[red](需要大会员)[/red]" if note == "需要大会员" else "[yellow](需要登录)[/yellow]" if note == "需要登录" else ""
+            self.console.print(f"  {key}. {desc} {requirement}")
         
         quality_choice = Prompt.ask(
             "\n[bold cyan]请选择质量[/bold cyan]",
             choices=list(self.quality_map.keys()),
-            default="4"
+            default="7"  # 默认720P
         )
         quality_code, quality_desc = self.quality_map[quality_choice]
         
@@ -230,6 +239,93 @@ class TUIDownloader:
             )
         
         self.console.print()
+        
+        # 交互式操作
+        self.console.print("[dim]按数字键编辑对应任务 (1-{})，按 q 返回[/dim]".format(min(9, len(self.download_queue))))
+        
+        while True:
+            try:
+                choice = self.getch()
+                if choice.lower() == 'q':
+                    return
+                
+                if choice.isdigit():
+                    task_idx = int(choice) - 1
+                    if 0 <= task_idx < len(self.download_queue):
+                        self.edit_task_quality(task_idx)
+                        # 编辑后返回，让用户可再次查看队列
+                        return
+                    else:
+                        self.console.print(f"[red]无效任务编号: {choice}[/red]")
+                else:
+                    self.console.print(f"[red]无效输入: {choice}[/red]，请按数字或 q")
+            except KeyboardInterrupt:
+                return
+    
+    def getch(self):
+        """读取单个字符，无需回车 (Linux/Unix版本)"""
+        import sys, tty, termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(sys.stdin.fileno())
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+    
+    def edit_task_quality(self, task_index: int):
+        """修改指定任务的画质"""
+        if task_index < 0 or task_index >= len(self.download_queue):
+            self.console.print("[red]✗[/red] 任务编号无效")
+            return
+        
+        task = self.download_queue[task_index]
+        
+        self.console.print(f"\n[bold blue]修改任务画质: {task['bvid']}[/bold blue]")
+        self.console.print(f"当前画质: [green]{task['quality_desc']}[/green]")
+        
+        # 显示画质选项
+        self.console.print("\n[bold cyan]请选择新的画质:[/bold cyan]")
+        quality_info = {
+            "1": (126, "杜比视界", "需要大会员"),
+            "2": (125, "HDR", "需要大会员"),
+            "3": (120, "4K", "需要大会员"),
+            "4": (116, "1080p60", "需要大会员"),
+            "5": (112, "1080p+", "需要大会员"),
+            "6": (80, "1080p", "需要登录"),
+            "7": (64, "720p", "高清"),
+            "8": (32, "480p", "标清"),
+            "9": (16, "360p", "流畅")
+        }
+        
+        for key, (code, desc, note) in quality_info.items():
+            requirement = "[red](需要大会员)[/red]" if note == "需要大会员" else "[yellow](需要登录)[/yellow]" if note == "需要登录" else ""
+            self.console.print(f"  {key}. {desc} {requirement}")
+        
+        self.console.print("\n[dim]按数字键选择画质 (1-9)，按 q 取消[/dim]")
+        
+        while True:
+            try:
+                choice = self.getch()
+                if choice.lower() == 'q':
+                    self.console.print("\n[dim]操作已取消[/dim]")
+                    return
+                
+                if choice in quality_info:
+                    quality_code, quality_desc, _ = quality_info[choice]
+                    
+                    # 更新任务
+                    task['quality'] = quality_code
+                    task['quality_desc'] = quality_desc
+                    
+                    self.console.print(f"\n[green]✓[/green] 任务 {task['bvid']} 画质已更新为: {quality_desc}")
+                    return
+                else:
+                    self.console.print(f"\n[red]无效选择: {choice}[/red]，请按 1-9 或 q")
+            except KeyboardInterrupt:
+                self.console.print("\n[dim]操作已取消[/dim]")
+                return
     
     def clear_queue(self):
         if not self.download_queue:
@@ -263,7 +359,8 @@ class TUIDownloader:
             self.console.print("[red]✗[/red] 请输入有效的数字")
     
     async def login(self):
-        self.console.print("\n[bold green]登录 Bilibili[/bold green]\n")
+        self.console.print("\n[bold green]登录 Bilibili[/bold green]")
+        self.console.print("[dim]登录大会员账号可下载4K、杜比视界、HDR等高级画质[/dim]\n")
         
         has_cookies = self.downloader.load_cookies()
         
@@ -272,15 +369,19 @@ class TUIDownloader:
                 success = await self.downloader._qr_login_async()
                 if success:
                     self.console.print("[green]✓[/green] 登录成功!")
+                    self.console.print("[dim]如要下载4K/杜比视界，请确保是大会员账号[/dim]")
                 else:
                     self.console.print("[red]✗[/red] 登录失败")
             else:
                 self.console.print("[green]✓[/green] 使用已保存的登录信息")
+                self.console.print("[dim]如要下载4K/杜比视界，请确保是大会员账号[/dim]")
         else:
-            self.console.print("[yellow]未找到登录信息，需要扫码登录[/yellow]\n")
+            self.console.print("[yellow]未找到登录信息，需要扫码登录[/yellow]")
+            self.console.print("[dim]扫码登录大会员账号可下载4K、杜比视界等高级画质[/dim]\n")
             success = await self.downloader._qr_login_async()
             if success:
                 self.console.print("[green]✓[/green] 登录成功!")
+                self.console.print("[dim]如要下载4K/杜比视界，请确保是大会员账号[/dim]")
             else:
                 self.console.print("[red]✗[/red] 登录失败")
     
